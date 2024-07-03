@@ -1,4 +1,4 @@
-tool
+@tool
 extends Container
 
 # When we load a file, keep a record of it so we can import it again with tweaked options.
@@ -75,8 +75,8 @@ const RIGHT_VECTOR = "right_vector"
 func _ready():
 	open_file_dialog = get_node("FileDialog")
 	open_file_dialog.add_filter("*.bvh ; Biovision Hierarchy")
-	#open_file_dialog.mode = FileDialog.MODE_OPEN_FILE
-	open_file_dialog.connect("file_selected", self, "_on_file_select")
+	open_file_dialog.file_mode = FileDialog.FileMode.FILE_MODE_OPEN_FILE
+	open_file_dialog.connect("file_selected", Callable(self, "_on_file_select"))
 	#get_editor_interface().get_base_control().add_child(open_file_dialog)
 	
 	skeleton_path_input = get_node("SkeletonPathInput")
@@ -84,7 +84,7 @@ func _ready():
 	animation_name_input = get_node("AnimationNameInput")
 	
 	show_tweaks_toggle = get_node("ShowImportTweaks")
-	show_tweaks_toggle.connect("toggled", self, "toggle_tweak_display")
+	show_tweaks_toggle.connect("toggled", Callable(self, "toggle_tweak_display"))
 	import_tweaks_group = get_node("ImportTweaksGroup")
 	ignore_offsets_option = get_node("ImportTweaksGroup/IgnoreOffsetsOption")
 	transform_scaling_spinbox = get_node("ImportTweaksGroup/TransformScaleTweak/TransformScaleSpinBox")
@@ -104,22 +104,22 @@ func _ready():
 	z_axis_remap_z = get_node("ImportTweaksGroup/ZBasisTweak/z")
 	
 	show_retargeting_button = get_node("ShowBoneRetargeting")
-	show_retargeting_button.connect("toggled", self, "toggle_bone_retargeting_display")
+	show_retargeting_button.connect("toggled", Callable(self, "toggle_bone_retargeting_display"))
 	bone_retargeting_group = get_node("BoneRetargetingGroup")
 	remapping_json_input = get_node("BoneRetargetingGroup/BoneMapJSONEditor")
 	generate_from_skeleton_button = get_node("BoneRetargetingGroup/GenerateFromSkeletonButton")
-	generate_from_skeleton_button.connect("pressed", self, "_generate_json_skeleton_map")
+	generate_from_skeleton_button.connect("pressed", Callable(self, "_generate_json_skeleton_map"))
 	
 	import_button = get_node("ImportButton")
-	import_button.connect("pressed", self, "_import")
+	import_button.connect("pressed", Callable(self, "_import"))
 	reimport_button = get_node("ReimportButton")
-	reimport_button.connect("pressed", self, "_reimport")
+	reimport_button.connect("pressed", Callable(self, "_reimport"))
 
 func toggle_tweak_display(toggle):
-	import_tweaks_group.visible = show_tweaks_toggle.pressed
+	import_tweaks_group.visible = show_tweaks_toggle.button_pressed
 
 func toggle_bone_retargeting_display(toggle):
-	bone_retargeting_group.visible = show_retargeting_button.pressed
+	bone_retargeting_group.visible = show_retargeting_button.button_pressed
 
 func get_config_data() -> Dictionary:
 	# Reads from our UI and returns a dictionary of String -> Value.
@@ -134,7 +134,10 @@ func get_config_data() -> Dictionary:
 	config[RIGHT_VECTOR] = Vector3(x_axis_remap_x.value, x_axis_remap_y.value, x_axis_remap_z.value)
 	config[UP_VECTOR] = Vector3(y_axis_remap_x.value, y_axis_remap_y.value, y_axis_remap_z.value)
 	config[FORWARD_VECTOR] = Vector3(z_axis_remap_x.value, z_axis_remap_y.value, z_axis_remap_z.value)
-	config[BONE_REMAPPING_JSON] = JSON.parse(remapping_json_input.text).result
+	var test_json_conv = JSON.new()
+	var result = test_json_conv.parse(remapping_json_input.text)
+	if result == OK:
+		config[BONE_REMAPPING_JSON] = test_json_conv.data
 	return config
 
 func _import():
@@ -158,10 +161,10 @@ func _generate_json_skeleton_map():
 	# This method feels hacky.  Would be good to clean it up.
 	var config = get_config_data()
 	var rig_name = config[SKELETON_PATH]
-	var skeleton:Skeleton = editor_interface.get_edited_scene_root().get_node(rig_name)
+	var skeleton:Skeleton3D = editor_interface.get_edited_scene_root().get_node(rig_name)
 	if skeleton == null:
 		remapping_json_input.text = "{}"
-		printerr("Failed to find Skeleton/Rig with name ", rig_name + ".")
+		printerr("Failed to find Skeleton3D/Rig with name ", rig_name + ".")
 		return
 	remapping_json_input.text = "{\n"
 	for bid in range(skeleton.get_bone_count()):
@@ -180,6 +183,9 @@ func _generate_json_skeleton_map():
 func _make_animation(file:String):
 	var config = get_config_data()
 	var animation = load_bvh_filename(file)
+	if animation == null:
+		printerr("Animation is null.  Please ensure that the animation which you'd like to load is valid.")
+		return
 	
 	# Attach to the animation player.
 	#var editor_selection = editor_interface.get_selection()
@@ -189,24 +195,27 @@ func _make_animation(file:String):
 	#	return
 	var animation_player:AnimationPlayer = editor_interface.get_edited_scene_root().get_node(config[ANIM_PLAYER_NAME])
 	if animation_player == null:
-		printerr("AnimationPlayer is null.  Please ensure that the animation player to which you'd like to add is selected.")
+		printerr("AnimationPlayer is null.  Please ensure that the animation player which you'd like to add is selected.")
 		return
 	
 	var animation_name = config[NEW_ANIM_NAME]
-	if animation_player.has_animation(animation_name):
+	if animation_player.get_animation_library("") == null:
+		animation_player.add_animation_library("", AnimationLibrary.new())
+	if animation_player.get_animation_library("").has_animation(animation_name):
 		# TODO: Animation exists.  Prompt to overwrite.
-		animation_player.remove_animation(animation_name)
-	animation_player.add_animation(animation_name, animation)
+		#animation_player.remove_animation_library(animation_name)
+		return
+	#animation_player.add_animation(animation_name, animation)
+	animation_player.get_animation_library("").add_animation(animation_name, animation)
 
 func load_bvh_filename(filename:String) -> Animation:
 	var config = get_config_data()
 	
 	#var plaintext = file.get_as_text()
-	var file:File = File.new()
-	if !file.file_exists(filename):
+	if !FileAccess.file_exists(filename):
 		printerr("Filename ", filename, " does not exist or cannot be accessed.")
 		return null
-	file.open(filename, File.READ) # "user://some_data"
+	var file = FileAccess.open(filename, FileAccess.READ) # "user://some_data"
 	# file.store_string("lmao")
 	var plaintext = file.get_as_text()
 	
@@ -215,6 +224,8 @@ func load_bvh_filename(filename:String) -> Animation:
 	var motion_lines = parsed_file[1]
 	
 	var hdata = parse_hierarchy(hierarchy_lines)
+	if hdata == null:
+		return null
 	var root_bone_name:String = hdata[0]
 	var bone_names:Array = hdata[1]
 	var bone_index_map:Dictionary = hdata[2]
@@ -265,17 +276,23 @@ func parse_hierarchy(text:Array):# -> [String, Array, Dictionary, Dictionary]:
 	var data_index:int = 0
 	var root_bone = ""
 	var current_bone = ""
+	var delimiter = " "
+	var error = false
 	for line in text:
 		var txt:String = line
+		line_index += 1
 		line = line.strip_edges()
+		delimiter = " "
+		if not delimiter in line:
+			delimiter = "\t"
 		if line.begins_with("ROOT"):
-			current_bone = line.split(" ", false)[1]
+			current_bone = line.split(delimiter, false)[1]
 			bone_names.append(current_bone)
 			bone_index_map[current_bone] = Dictionary()
 			bone_offsets[current_bone] = Vector3()
 			root_bone = current_bone
 		elif line.begins_with("CHANNELS"):
-			var data:Array = line.split(" ", false)
+			var data:Array = line.split(delimiter, false)
 			var num_channels = data[1].to_int()
 			print("Reading " + str(num_channels) + " data channel(s) for bone " + current_bone)
 			for c in range(num_channels):
@@ -284,16 +301,21 @@ func parse_hierarchy(text:Array):# -> [String, Array, Dictionary, Dictionary]:
 				print(current_bone + " " + chan + ": " + str(data_index))
 				data_index += 1
 		elif line.begins_with("JOINT"):
-			current_bone = line.split(" ", false)[1]
+			current_bone = line.split(delimiter, false)[1]
 			bone_names.append(current_bone)
 			bone_index_map[current_bone] = Dictionary() # -1 means not in collection.
 			bone_offsets[current_bone] = Vector3()
 		elif line.begins_with("OFFSET"):
-			var data:Array = line.split(" ", false)
+			var data:Array = line.split(delimiter, false)
+			if not len(data) > 3:
+				error = true
+				break
 			bone_offsets[current_bone].x = data[1].to_float()
 			bone_offsets[current_bone].y = data[2].to_float()
 			bone_offsets[current_bone].z = data[3].to_float()
-	
+	if error:
+		printerr("Error @ " + str(line_index))
+		return null
 	return [root_bone, bone_names, bone_index_map, bone_offsets]
 
 # WARNING: This method will mutate the input text array.
@@ -323,17 +345,20 @@ func parse_motion(root:String, bone_names:Array, bone_index_map:Dictionary, bone
 	
 	# Create new tracks.
 	var element_track_index_map:Dictionary = Dictionary()
-	for i in range(len(bone_names)):
-		var track_index = animation.add_track(Animation.TYPE_TRANSFORM)
+	for bone_index in range(len(bone_names)):
+		var position_track_index = animation.add_track(Animation.TrackType.TYPE_POSITION_3D)
 		# Note: Hitting the keyframe button on the pose data will insert a value track with bones/##/pose,
 		# but this doesn't appear to work for the replay.  Use a transform track instead of Animation.TYPE_VALUE.
-		element_track_index_map[i] = track_index
+		element_track_index_map[bone_index] = position_track_index
+		var rotation_track_index = animation.add_track(Animation.TrackType.TYPE_ROTATION_3D)
+		element_track_index_map[len(bone_names) + bone_index] = rotation_track_index
 	
 	var step:int = 0
 	for line in text:
 		var values = line.strip_edges().split_floats(" ", false)
 		for bone_index in range(len(bone_names)):
-			var track_index = element_track_index_map[bone_index]
+			var position_track_index = element_track_index_map[bone_index]
+			var rotation_track_index = element_track_index_map[len(bone_names) + bone_index]
 			var bone_name = bone_names[bone_index]
 			
 			# Use negative one so that if we forget a check we fail early and get an index error, rather than bad data.
@@ -344,20 +369,20 @@ func parse_motion(root:String, bone_names:Array, bone_index_map:Dictionary, bone
 			var rotation_y_index = bone_index_map[bone_name].get(YROT, -1)
 			var rotation_z_index = bone_index_map[bone_name].get(ZROT, -1)
 			
-			var translation = Vector3()
+			var position = Vector3()
 			if not config[IGNORE_OFFSETS]: # These are the _starting_ offsets, not the translations.
-				translation = Vector3(
+				position = Vector3(
 					bone_offsets[bone_name].x,
 					bone_offsets[bone_name].y,
 					bone_offsets[bone_name].z
 				) # Clone this vector so we don't change it between steps.
 			if translation_x_index != -1:
-				translation.x += values[translation_x_index]
+				position.x += values[translation_x_index]
 			if translation_y_index != -1:
-				translation.y += values[translation_y_index]
+				position.y += values[translation_y_index]
 			if translation_z_index != -1:
-				translation.z += values[translation_z_index]
-			translation *= config[TRANSFORM_SCALING]
+				position.z += values[translation_z_index]
+			position *= config[TRANSFORM_SCALING]
 			
 			# Godot: +X right, -Z forward, +Y up.
 			# BVH: +Y up.
@@ -385,8 +410,11 @@ func parse_motion(root:String, bone_names:Array, bone_index_map:Dictionary, bone
 				bone_name = config[BONE_REMAPPING_JSON][bone_name]
 				# TODO: Option to skip unmapped bones.  Leaving as is for now because people can remove them manually.
 			
-			animation.track_set_path(track_index, rig_name + ":" + bone_name)
-			animation.transform_track_insert_key(track_index, step*timestep, translation, rotation, Vector3(1, 1, 1))
+			animation.track_set_path(position_track_index, rig_name + ":" + bone_name)
+			animation.track_insert_key(position_track_index, step*timestep, position)
+			animation.track_set_path(rotation_track_index, rig_name + ":" + bone_name)
+			animation.track_insert_key(rotation_track_index, step*timestep, rotation)
+			#animation.transform_track_insert_key(track_index, step*timestep, position, rotation, Vector3(1, 1, 1))
 			#animation.transform_track_insert_key(track_index, step*timestep, translation, Quat(raw_rotation_values.x, raw_rotation_values.y, raw_rotation_values.z, 0), Vector3(1, 1, 1))
 			#animation.transform_track_insert_key(track_index, step*timestep, transform.origin, transform.basis.get_rotation_quat(), Vector3(1, 1, 1))
 			#animation.track_set_path(track_index, rig_name + ":" + "bones/" + str(bone_index) + "/pose")
@@ -401,17 +429,17 @@ class FirstIndexSort:
 			return true
 		return false
 
-func _bvh_zxy_to_quaternion(x:float, y:float, z:float, x_idx:int, y_idx:int, z_idx:int) -> Quat:
+func _bvh_zxy_to_quaternion(x:float, y:float, z:float, x_idx:int, y_idx:int, z_idx:int) -> Quaternion:
 	# From BVH documentation: "it goes Z rotation, followed by the X rotation and finally the Y rotation."
 	# But there are some applications which change the ordering.  
 	var config = get_config_data()
-	var rotation := Quat.IDENTITY
-	var x_rot = Quat(config[RIGHT_VECTOR], deg2rad(x))
-	var y_rot = Quat(config[UP_VECTOR], deg2rad(y))
-	var z_rot = Quat(config[FORWARD_VECTOR], deg2rad(z))
+	var rotation := Quaternion.IDENTITY
+	var x_rot = Quaternion(config[RIGHT_VECTOR], deg_to_rad(x))
+	var y_rot = Quaternion(config[UP_VECTOR], deg_to_rad(y))
+	var z_rot = Quaternion(config[FORWARD_VECTOR], deg_to_rad(z))
 	# This is a lazy way of sorting the actions into appropriate order.
 	var rotation_matrices = [[x_idx, x_rot], [y_idx, y_rot], [z_idx, z_rot]]
-	rotation_matrices.sort_custom(FirstIndexSort, "sort_ascending")
+	rotation_matrices.sort_custom(Callable(FirstIndexSort, "sort_ascending"))
 	for r in rotation_matrices:
 		rotation *= r[1]
 	return rotation

@@ -1,4 +1,4 @@
-tool
+@tool
 extends EditorPlugin
 
 #
@@ -10,7 +10,7 @@ var dock
 func _enter_tree():
 	# Initialization of the plugin goes here
 	# Load the dock scene and instance it
-	dock = preload("res://addons/bvh_import/dock.tscn").instance()
+	dock = preload("res://addons/bvh_import/dock.tscn").instantiate()
 	dock.editor_interface = get_editor_interface()
 	
 	# Add the loaded scene to the docks
